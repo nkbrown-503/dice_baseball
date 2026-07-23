@@ -155,8 +155,8 @@ class DiceBaseballApp:
         self.out_markers = []
         self.dice_values = (1, 1)
         self.team_stats = {
-            "away": {"runs": [], "hits": 0, "errors": 0, "batters": 0},
-            "home": {"runs": [], "hits": 0, "errors": 0, "batters": 0},
+            "away": {"runs": [], "hits": 0, "errors": 0, "batters": 0, "strikeouts": 0},
+            "home": {"runs": [], "hits": 0, "errors": 0, "batters": 0, "strikeouts": 0},
         }
         self.ensure_score_slots()
 
@@ -479,6 +479,9 @@ class DiceBaseballApp:
     def add_error(self):
         self.team_stats[self.defense_side()]["errors"] += 1
 
+    def add_strikeout(self):
+        self.team_stats[self.offense_side()]["strikeouts"] += 1
+
     def advance_existing_runners(self, bases=1):
         new_bases = [None, None, None]
         for i in range(2, -1, -1):
@@ -597,16 +600,23 @@ class DiceBaseballApp:
         return "Unknown"
 
     def simplified_result(self, dice):
-        if dice in [(1, 1), (2, 2)]:
-            return "Double"
+        runners_on = any(runner is not None for runner in self.bases)
+        if dice == (1, 1):
+            return "Deep Double" if runners_on else "Double"
+        if dice == (2, 2):
+            return "Deep Double" if runners_on else "Double"
         if dice == (3, 3):
             return "Triple"
         if dice == (6, 6):
             return "HomeRun"
-        if dice in [(1, 4), (2, 4), (5, 5), (1, 3), (4, 4)]:
+        if dice == (2, 4):
+            return "Deep Single" if runners_on else "Single"
+        if dice in [(1, 4), (5, 5), (1, 3), (4, 4)]:
             return "Single"
         if dice in [(1, 6), (2, 5), (3, 4)]:
             return "Strikeout"
+        if dice in [(1, 2), (1, 5)] and self.lead_forced_base() is not None:
+            return "Double Play"
         return "Groundout"
 
     def resolve_play(self):
@@ -629,6 +639,7 @@ class DiceBaseballApp:
         elif dice == (1, 4):
             self.advance_with_batter(1, 0, hit=True)
         elif dice == (1, 6) or dice == (2, 5) or dice == (3, 4):
+            self.add_strikeout()
             self.batter_out_runners_advance(0)
             self.batter_reaction = "out"
         elif dice == (2, 2):
@@ -846,6 +857,25 @@ class DiceBaseballApp:
             self.canvas.create_text(total_xs["R"], row_y, text=str(self.total_runs(side)), fill=PALETTE["charcoal"], font=("Courier", 11, "bold"))
             self.canvas.create_text(total_xs["H"], row_y, text=str(self.team_stats[side]["hits"]), fill=PALETTE["charcoal"], font=("Courier", 11, "bold"))
             self.canvas.create_text(total_xs["E"], row_y, text=str(self.team_stats[side]["errors"]), fill=PALETTE["charcoal"], font=("Courier", 11, "bold"))
+        self.draw_strikeout_counter()
+
+    def k_text_layout(self, count):
+        if count <= 0:
+            return "", 18
+        per_line = 5 if count <= 10 else 6
+        rows = ["K" * min(per_line, count - i) for i in range(0, count, per_line)]
+        font_size = max(8, min(18, 42 // len(rows)))
+        return "\n".join(rows), font_size
+
+    def draw_strikeout_counter(self):
+        self.panel(990, 52, 1090, 194, PALETTE["card"], PALETTE["navy"], 6)
+        self.canvas.create_text(1040, 74, text="K COUNT", fill=PALETTE["dusty_red"], font=("Courier", 10, "bold"))
+        self.canvas.create_line(1002, 96, 1078, 96, fill=PALETTE["brown"], width=2)
+        self.canvas.create_line(1002, 145, 1078, 145, fill="#e3c78f", width=2)
+        for row_y, side, label in [(121, "away", "A"), (170, "home", "H")]:
+            self.canvas.create_text(1008, row_y, text=label, anchor="w", fill=PALETTE["navy"], font=("Courier", 10, "bold"))
+            k_text, font_size = self.k_text_layout(self.team_stats[side]["strikeouts"])
+            self.canvas.create_text(1048, row_y, text=k_text, fill="#b83032", font=("Courier", font_size, "bold"), justify="center")
 
     def draw_dice_area(self):
         if self.simple_result:
