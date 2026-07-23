@@ -792,50 +792,97 @@ class DiceBaseballWeb {
     const [defenseMain, defenseSecondary] = this.teamColors(this.defenseSide());
     const [offenseMain, offenseSecondary] = this.teamColors(this.offenseSide());
     const positions = [
-      [550, 468, "P"], [550, 684, "C"], [822, 484, "1B"], [630, 402, "2B"],
-      [286, 492, "3B"], [456, 414, "SS"], [250, 350, "LF"], [550, 292, "CF"], [850, 350, "RF"],
+      ["P", 550, 468, "pitcher", "#8b5a3c", "#2b1b16"],
+      ["C", 550, 684, "catcher", "#5f3826", "#1b1715"],
+      ["1B", 822, 484, "first", "#c9875b", "#4a2c1c"],
+      ["2B", 630, 402, "infielder", "#f0b47a", "#5b321d"],
+      ["3B", 286, 492, "infielder", "#7a4a31", "#1d1512"],
+      ["SS", 456, 414, "infielder", "#b9774f", "#332018"],
+      ["LF", 250, 350, "outfielder", "#6f432e", "#1b1715"],
+      ["CF", 550, 292, "outfielder", "#d89a68", "#6b3a1e"],
+      ["RF", 850, 350, "outfielder", "#9f6646", "#271b17"],
     ];
-    positions.forEach(([x, y, label]) => this.drawPlayer(x, y, defenseMain, defenseSecondary, label));
+    positions.forEach(([label, x, y, role, skin, hair]) => this.drawPlayer(x, y, defenseMain, defenseSecondary, role, skin, hair, label));
     const batterX = this.batterSide === 1 ? 508 : 592;
     this.drawBatter(batterX, 654, offenseMain, offenseSecondary);
-    [[735, 490], [510, 382], [365, 520]].forEach(([x, y], i) => {
-      if (this.bases[i] !== null) this.drawRunner(x, y, offenseMain, offenseSecondary);
+    [[735, 490, "second"], [510, 382, "third"], [365, 520, "home"]].forEach(([x, y, direction], i) => {
+      if (this.bases[i] !== null) this.drawRunner(x, y, offenseMain, offenseSecondary, direction);
     });
     this.outMarkers.forEach(([x, y]) => this.text(x, y - 58, "X", PALETTE.dustyRed, 24));
   }
 
-  drawPlayer(x, y, main, secondary, label) {
-    this.oval(x - 28, y - 8, 56, 22, "#b97f4b", PALETTE.navy, 3);
-    this.rect(x - 18, y - 18, 36, 36, main, PALETTE.navy, 3);
-    this.rect(x - 15, y + 12, 12, 20, PALETTE.cream, PALETTE.navy, 2);
-    this.rect(x + 3, y + 12, 12, 20, PALETTE.cream, PALETTE.navy, 2);
-    this.circle(x, y - 35, 17, "#d89a68", PALETTE.navy, 3);
-    this.drawSmallCap(x, y - 51, main, secondary, x < 550 ? 1 : -1);
-    this.text(x, y - 4, label, PALETTE.cream, label.length > 1 ? 10 : 12);
+  drawPlayerCap(x, y, main, secondary, facing = 1) {
+    let crown = [[x - 18, y], [x - 12, y - 12], [x + 8, y - 16], [x + 20, y - 8], [x + 18, y + 3], [x - 12, y + 5]];
+    const brim = [[x + 8 * facing, y + 1], [x + 30 * facing, y + 3], [x + 22 * facing, y + 11], [x + 4 * facing, y + 8]];
+    if (facing < 0) crown = crown.map(([px, py]) => [x - (px - x), py]);
+    this.polygon(crown, main, PALETTE.navy, 3);
+    this.polygon(brim, secondary, PALETTE.navy, 3);
+    this.polygon([[x - 11, y - 2], [x - 5, y - 10], [x + 5, y - 12], [x, y + 2]], this.shade(main, 0.18));
   }
 
-  drawSmallCap(x, y, main, secondary, facing = 1) {
-    this.polygon([[x - 18 * facing, y], [x - 10 * facing, y - 11], [x + 8 * facing, y - 14], [x + 18 * facing, y - 4], [x + 14 * facing, y + 4]], main, PALETTE.navy, 3);
-    this.polygon([[x + 8 * facing, y + 1], [x + 30 * facing, y + 3], [x + 20 * facing, y + 10]], secondary, PALETTE.navy, 3);
+  drawJersey(x, y, main, secondary, width = 38, height = 40, lean = 0) {
+    const left = x - Math.floor(width / 2) + lean;
+    const right = x + Math.floor(width / 2) + lean;
+    const top = y;
+    const bottom = y + height;
+    this.polygon([[left, top + 6], [x - 8 + lean, top], [x + 8 + lean, top], [right, top + 6], [right - 4, bottom], [left + 4, bottom]], main, PALETTE.navy, 4);
+    this.polygon([[left - 12, top + 8], [left + 4, top + 5], [left + 8, top + 20], [left - 8, top + 24]], secondary, PALETTE.navy, 3);
+    this.polygon([[right + 12, top + 8], [right - 4, top + 5], [right - 8, top + 20], [right + 8, top + 24]], secondary, PALETTE.navy, 3);
+    this.polygon([[x - 11 + lean, top + 1], [x, top + 12], [x + 11 + lean, top + 1], [x + 6 + lean, top], [x, top + 6], [x - 6 + lean, top]], PALETTE.cream, PALETTE.navy, 2);
+    this.line([[x + lean, top + 12], [x + lean, bottom - 4]], PALETTE.cream, 3);
+    [top + 19, top + 29].forEach((buttonY) => this.rect(x - 2 + lean, buttonY, 4, 3, secondary));
+    this.polygon([[left + 4, bottom], [x - 3 + lean, bottom], [x - 8 + lean, bottom + 17], [left + 6, bottom + 17]], PALETTE.cream, PALETTE.navy, 3);
+    this.polygon([[x + 3 + lean, bottom], [right - 4, bottom], [right - 6, bottom + 17], [x + 8 + lean, bottom + 17]], PALETTE.cream, PALETTE.navy, 3);
+  }
+
+  drawPlayer(x, y, main, secondary, role, skin, hair) {
+    if (role === "pitcher") {
+      this.oval(x - 28, y - 8, 56, 22, "#b97f4b", PALETTE.navy, 3);
+      this.line([[x + 8, y - 10], [x + 30, y - 35]], PALETTE.navy, 5);
+      this.oval(x + 26, y - 42, 12, 12, PALETTE.cream, PALETTE.navy, 2);
+    } else if (role === "catcher") {
+      this.rect(x - 20, y - 18, 40, 36, secondary, PALETTE.navy, 4);
+      this.line([[x - 18, y + 10], [x - 36, y + 30]], PALETTE.navy, 5);
+      this.line([[x + 18, y + 10], [x + 36, y + 30]], PALETTE.navy, 5);
+      this.oval(x - 30, y - 48, 60, 50, main, PALETTE.navy, 4);
+      this.line([[x - 18, y - 28], [x + 18, y - 28]], PALETTE.cream, 3);
+      this.line([[x - 16, y - 16], [x + 16, y - 16]], PALETTE.cream, 3);
+      return;
+    } else if (role === "first") {
+      this.oval(x - 48, y - 5, 24, 27, PALETTE.brown, PALETTE.navy, 3);
+    } else if (role === "infielder") {
+      this.oval(x + 24, y + 2, 24, 23, PALETTE.brown, PALETTE.navy, 3);
+    } else {
+      this.oval(x + 20, y - 3, 24, 23, PALETTE.brown, PALETTE.navy, 3);
+    }
+    this.drawJersey(x, y - 14, main, secondary, 40, 38);
+    this.oval(x - 16, y - 45, 32, 32, skin, PALETTE.navy, 3);
+    this.rect(x - 14, y - 48, 28, 12, hair, PALETTE.navy, 2);
+    this.drawPlayerCap(x, y - 50, main, secondary, x < 550 ? 1 : -1);
   }
 
   drawBatter(x, y, main, secondary) {
     const d = this.batterSide;
-    this.line([[x + 24 * d, y - 62], [x + 68 * d, y - 104]], PALETTE.navy, 8);
-    this.line([[x + 24 * d, y - 62], [x + 68 * d, y - 104]], PALETTE.brown, 5);
-    this.rect(x - 20, y - 21, 40, 42, main, PALETTE.navy, 4);
-    this.line([[x - 16 * d, y - 6], [x + 27 * d, y - 57]], PALETTE.navy, 6);
-    this.circle(x, y - 42, 17, "#b9774f", PALETTE.navy, 3);
-    this.drawSmallCap(x, y - 61, main, secondary, d);
+    this.line([[x + 18 * d, y - 55], [x + 66 * d, y - 88]], PALETTE.navy, 8);
+    this.line([[x + 18 * d, y - 55], [x + 66 * d, y - 88]], PALETTE.brown, 5);
+    this.drawJersey(x + 2 * d, y - 20, main, secondary, 42, 42, 3 * d);
+    this.line([[x - 16 * d, y - 6], [x + 24 * d, y - 47]], PALETTE.navy, 6);
+    this.line([[x + 3 * d, y - 8], [x + 25 * d, y - 49]], PALETTE.navy, 6);
+    this.oval(x + 18 * d - 7, y - 61, 14, 14, PALETTE.cream, PALETTE.navy, 2);
+    this.oval(x - 17, y - 56, 34, 33, "#b9774f", PALETTE.navy, 3);
+    if (d === 1) this.rect(x - 18, y - 39, 24, 8, "#3b2419");
+    else this.rect(x - 6, y - 39, 24, 8, "#3b2419");
+    this.drawPlayerCap(x, y - 61, main, secondary, d);
     if (this.batterReaction === "walk") this.text(x - 5, y - 88, "!", PALETTE.mustard, 18);
     else if (this.batterReaction === "out") this.text(x - 10, y - 88, "X", PALETTE.dustyRed, 16);
   }
 
-  drawRunner(x, y, main, secondary) {
-    this.rect(x - 16, y - 18, 32, 36, main, PALETTE.navy, 3);
-    this.circle(x, y - 35, 15, "#d89a68", PALETTE.navy, 3);
-    this.drawSmallCap(x, y - 51, main, secondary, 1);
-    this.line([[x + 12, y - 4], [x + 38, y - 12]], PALETTE.navy, 5);
+  drawRunner(x, y, main, secondary, direction) {
+    const lean = { second: -16, third: -18, home: 16 }[direction];
+    this.drawJersey(x + Math.floor(lean / 4), y - 18, main, secondary, 36, 38, Math.floor(lean / 5));
+    this.oval(x - 14, y - 46, 30, 30, "#d89a68", PALETTE.navy, 3);
+    this.drawPlayerCap(x, y - 51, main, secondary, lean < 0 ? -1 : 1);
+    this.line([[x + 12, y - 4], [x + lean + 28, y - 12]], PALETTE.navy, 5);
   }
 
   drawVictoryOverlay() {

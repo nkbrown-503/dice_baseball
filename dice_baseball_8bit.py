@@ -783,12 +783,12 @@ class DiceBaseballApp:
     def draw_batter(self, x, y, main, secondary):
         outline = PALETTE["navy"]
         d = getattr(self, "batter_side", 1)
-        self.canvas.create_line(x + 24 * d, y - 62, x + 68 * d, y - 104, fill=outline, width=8)
-        self.canvas.create_line(x + 24 * d, y - 62, x + 68 * d, y - 104, fill=PALETTE["brown"], width=5)
+        self.canvas.create_line(x + 18 * d, y - 55, x + 66 * d, y - 88, fill=outline, width=8)
+        self.canvas.create_line(x + 18 * d, y - 55, x + 66 * d, y - 88, fill=PALETTE["brown"], width=5)
         self.draw_jersey(x + 2 * d, y - 20, main, secondary, 42, 42, lean=3 * d)
-        self.canvas.create_line(x - 16 * d, y - 6, x + 27 * d, y - 57, fill=outline, width=6)
-        self.canvas.create_line(x + 3 * d, y - 8, x + 29 * d, y - 58, fill=outline, width=6)
-        self.canvas.create_oval(x + 22 * d - 7, y - 64, x + 22 * d + 7, y - 50, fill=PALETTE["cream"], outline=outline, width=2)
+        self.canvas.create_line(x - 16 * d, y - 6, x + 24 * d, y - 47, fill=outline, width=6)
+        self.canvas.create_line(x + 3 * d, y - 8, x + 25 * d, y - 49, fill=outline, width=6)
+        self.canvas.create_oval(x + 18 * d - 7, y - 61, x + 18 * d + 7, y - 47, fill=PALETTE["cream"], outline=outline, width=2)
         self.canvas.create_oval(x - 17, y - 56, x + 17, y - 23, fill="#b9774f", outline=outline, width=3)
         if d == 1:
             self.canvas.create_rectangle(x - 18, y - 39, x + 6, y - 31, fill="#3b2419", outline="")
