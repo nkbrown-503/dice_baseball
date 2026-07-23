@@ -1,6 +1,6 @@
 # Dice Baseball 8-Bit
 
-A retro-styled tabletop baseball game built with Python and Tkinter. Pick home and away teams, choose a field, select the number of innings, then roll dice to resolve each at-bat.
+A retro-styled tabletop baseball game built with Python and Tkinter, with a separate browser-playable version in `docs/`. Pick home and away teams, choose a field, select the number of innings, then roll dice to resolve each at-bat.
 
 ## Features
 
@@ -23,7 +23,21 @@ On some Linux distributions, Tkinter may need to be installed separately:
 sudo apt install python3-tk
 ```
 
-## Running the Game
+## Play in the Browser
+
+The web version lives in `docs/` and is ready for GitHub Pages.
+
+To publish it:
+
+1. Push this repo to GitHub.
+2. Go to **Settings** > **Pages**.
+3. Under **Build and deployment**, set **Source** to **Deploy from a branch**.
+4. Select your branch and choose the `/docs` folder.
+5. Save. GitHub will provide a playable URL for the game.
+
+You can also open `docs/index.html` directly in a browser for local play.
+
+## Running the Python Game
 
 From the project directory, run:
 
