@@ -1,13 +1,49 @@
 import math
 import random
 import tkinter as tk
+from pathlib import Path
+
+try:
+    import numpy.typing as npt
+    if not hasattr(npt, "NDArray"):
+        class NDArray:
+            def __class_getitem__(cls, item):
+                return object
+        npt.NDArray = NDArray
+except ImportError:
+    pass
+
+try:
+    from PIL import Image, ImageOps, ImageTk
+except ImportError as exc:
+    raise SystemExit("This version requires Pillow. Install it with: pip install pillow") from exc
 
 WIDTH = 1100
 HEIGHT = 720
 
-stadium_pic="stadium_pictures/stadium.png"
-backyard_pic="stadium_pictures/backyard.png"
-parkinglot_pic="stadium_pictures/parking_lot.png"
+# Asset folders are resolved relative to this script, so the game can be launched
+# from any working directory.
+BASE_DIR = Path(__file__).resolve().parent
+BACKGROUND_DIR = BASE_DIR / "stadium_pictures"
+CHARACTER_DIR = BASE_DIR / "character_sprites"
+
+TITLE_BACKGROUND_FILE = BACKGROUND_DIR / "title_background.png"
+
+BACKGROUND_FILES = {
+    "Stadium": BACKGROUND_DIR / "stadium.png",
+    "Backyard": BACKGROUND_DIR / "backyard.png",
+    "Parking Lot": BACKGROUND_DIR / "parking_lot.png",
+}
+
+# Exact placeholder colors used in transparent character templates.
+# Draw each template with these colors, and the game will replace them at runtime.
+SPRITE_PLACEHOLDERS = {
+    (255, 0, 0): "primary",       # jersey / helmet primary
+    (0, 255, 0): "secondary",     # sleeves / trim / helmet secondary
+    (0, 0, 255): "accent",        # socks / stripe / logo
+    (255, 0, 255): "skin",        # skin region
+    (0, 255, 255): "hair",        # hair region
+}
 
 PALETTE = {
     "cream": "#f6e7c8",
@@ -112,6 +148,83 @@ CAP_LETTERS = {
 }
 
 
+class SpriteManager:
+    """Load, recolor, resize, mirror, and cache transparent player sprites.
+
+    Expected files in character_sprites/:\n
+        pitcher.png, catcher.png, first_baseman.png, infielder.png,
+        outfielder.png, batter.png, runner.png
+
+    Optional state-specific files may also be supplied, for example:
+        batter_swing.png, batter_out.png, runner_slide.png
+
+    Template colors are replaced according to SPRITE_PLACEHOLDERS. Any other
+    pixels, such as outlines, gloves, bats, masks, and shoes, are preserved.
+    """
+
+    def __init__(self, root_dir):
+        self.root_dir = Path(root_dir)
+        self.cache = {}
+        self.tk_cache = {}
+
+    @staticmethod
+    def _hex_to_rgb(color):
+        color = color.lstrip("#")
+        return tuple(int(color[i:i + 2], 16) for i in (0, 2, 4))
+
+    @staticmethod
+    def _shade_rgb(rgb, factor):
+        return tuple(max(0, min(255, round(channel * factor))) for channel in rgb)
+
+    def _find_template(self, role, state):
+        candidates = []
+        if state and state != "idle":
+            candidates.append(self.root_dir / f"{role}_{state}.png")
+        candidates.append(self.root_dir / f"{role}.png")
+        for path in candidates:
+            if path.exists():
+                return path
+        return None
+
+    def get(self, role, primary, secondary, skin, hair, size, facing="right", state="idle"):
+        key = (role, primary, secondary, skin, hair, size, facing, state)
+        if key in self.tk_cache:
+            return self.tk_cache[key]
+
+        template_path = self._find_template(role, state)
+        if template_path is None:
+            return None
+
+        image = Image.open(template_path).convert("RGBA")
+        pixels = image.load()
+        primary_rgb = self._hex_to_rgb(primary)
+        secondary_rgb = self._hex_to_rgb(secondary)
+        palette = {
+            "primary": primary_rgb,
+            "secondary": secondary_rgb,
+            "accent": self._shade_rgb(primary_rgb, 1.22),
+            "skin": self._hex_to_rgb(skin),
+            "hair": self._hex_to_rgb(hair),
+        }
+
+        for y in range(image.height):
+            for x in range(image.width):
+                r, g, b, a = pixels[x, y]
+                replacement = SPRITE_PLACEHOLDERS.get((r, g, b))
+                if replacement:
+                    nr, ng, nb = palette[replacement]
+                    pixels[x, y] = (nr, ng, nb, a)
+
+        if facing == "left":
+            image = ImageOps.mirror(image)
+
+        max_w, max_h = size
+        image.thumbnail((max_w, max_h), Image.Resampling.NEAREST)
+        tk_image = ImageTk.PhotoImage(image)
+        self.tk_cache[key] = tk_image
+        return tk_image
+
+
 class DiceBaseballApp:
     def __init__(self):
         self.root = tk.Tk()
@@ -120,6 +233,9 @@ class DiceBaseballApp:
         self.canvas = tk.Canvas(self.root, width=WIDTH, height=HEIGHT, bg=PALETTE["sky"], highlightthickness=0)
         self.canvas.pack()
         self.clickables = []
+        self.background_cache = {}
+        self.sprite_manager = SpriteManager(CHARACTER_DIR)
+        self.canvas_images = []
         self.home_index = self.team_index("Pittsburgh", "black", "gold")
         self.away_index = self.team_index("Cincinnati", "red", "black")
         self.selected_innings = 3
@@ -142,6 +258,7 @@ class DiceBaseballApp:
     def clear(self):
         self.canvas.delete("all")
         self.clickables = []
+        self.canvas_images = []
 
     def reset_game_state(self):
         self.game_active = True
@@ -207,7 +324,8 @@ class DiceBaseballApp:
     def show_home(self):
         self.screen = "home"
         self.clear()
-        self.draw_background()
+        if not self.draw_scaled_background_image(TITLE_BACKGROUND_FILE):
+            self.draw_background()
         self.panel(240, 80, 860, 255, PALETTE["card"], PALETTE["navy"], 7)
         self.title_text(550, 145, "DICE BASEBALL", 46)
         self.canvas.create_text(550, 210, text="Neighborhood tabletop baseball", fill=PALETTE["navy"], font=("Courier", 19, "bold"))
@@ -294,14 +412,46 @@ class DiceBaseballApp:
             self.draw_victory_overlay()
 
     def draw_field_scene(self, field):
-        if field == "Backyard":
-            self.draw_backyard_field()
-        elif field == "Parking Lot":
-            self.draw_parking_lot_field()
-        else:
-            self.draw_stadium_field()
-        self.draw_playable_field(field)
+        # Prefer the polished background PNG. If it is missing, retain the old
+        # procedural field as a safe fallback.
+        if not self.draw_background_image(field):
+            if field == "Backyard":
+                self.draw_backyard_field()
+            elif field == "Parking Lot":
+                self.draw_parking_lot_field()
+            else:
+                self.draw_stadium_field()
+            self.draw_playable_field(field)
         self.canvas.create_text(550, 33, text=field.upper(), fill=PALETTE["cream"], font=("Courier", 24, "bold"))
+
+    def draw_background_image(self, field):
+        path = BACKGROUND_FILES.get(field)
+        return self.draw_scaled_background_image(path)
+
+    def draw_scaled_background_image(self, path):
+        if path is None or not path.exists():
+            return False
+
+        cache_key = (str(path), WIDTH, HEIGHT)
+        tk_image = self.background_cache.get(cache_key)
+        if tk_image is None:
+            image = Image.open(path).convert("RGB")
+            # Scale to cover the canvas, then center-crop. This avoids stretching
+            # the source when image and window aspect ratios differ slightly.
+            scale = max(WIDTH / image.width, HEIGHT / image.height)
+            resized = image.resize(
+                (round(image.width * scale), round(image.height * scale)),
+                Image.Resampling.NEAREST,
+            )
+            left = max(0, (resized.width - WIDTH) // 2)
+            top = max(0, (resized.height - HEIGHT) // 2)
+            resized = resized.crop((left, top, left + WIDTH, top + HEIGHT))
+            tk_image = ImageTk.PhotoImage(resized)
+            self.background_cache[cache_key] = tk_image
+
+        self.canvas.create_image(0, 0, image=tk_image, anchor="nw")
+        self.canvas_images.append(tk_image)
+        return True
 
     def draw_sky(self):
         self.canvas.create_rectangle(0, 0, WIDTH, HEIGHT, fill=PALETTE["sky"], outline="")
@@ -523,10 +673,15 @@ class DiceBaseballApp:
         self.bases[0] = "runner"
 
     def base_marker_position(self, base_index):
-        return [(735, 490), (510, 382), (365, 520)][base_index]
+        positions = [(830, 474), (540, 374), (266, 474)]
+        if self.selected_field == "Parking Lot":
+            positions = [(855, 474), (540, 349), (241, 474)]
+        elif self.selected_field == "Backyard":
+            positions = [(830, 459), (530, 349), (266, 459)]
+        return positions[base_index]
 
     def batter_marker_position(self):
-        return (508 if self.batter_side == 1 else 592, 654)
+        return (492 if self.batter_side == 1 else 608, 660)
 
     def add_out_marker(self, x, y):
         self.out_markers.append((x, y))
@@ -710,29 +865,138 @@ class DiceBaseballApp:
     def draw_players(self):
         if not hasattr(self, "bases"):
             return
+
         defense_main, defense_secondary = self.team_colors(self.defense_side())
         offense_main, offense_secondary = self.team_colors(self.offense_side())
+        third_base_x = 298
+        shortstop_x = 468
+        second_base_x = 632
+        first_base_x = 805
+        if self.selected_field == "Backyard":
+            pitcher_y = 455
+            third_base_y = 415
+            shortstop_y = 367
+            second_base_y = 367
+            first_base_y = 415
+        elif self.selected_field == "Parking Lot":
+            pitcher_y = 455
+            third_base_x = 283
+            third_base_y = 425
+            shortstop_x = 453
+            shortstop_y = 377
+            second_base_x = 647
+            second_base_y = 377
+            first_base_x = 820
+            first_base_y = 425
+        else:
+            pitcher_y = 470
+            third_base_y = 440
+            shortstop_y = 392
+            second_base_y = 392
+            first_base_y = 440
+
+        # Tuned for the integrated 1100x720 field backgrounds.
+        # Coordinates are feet/ground anchors.
         positions = [
-            ("P", 550, 468, "pitcher", "#8b5a3c", "#2b1b16"),
-            ("C", 550, 684, "catcher", "#5f3826", "#1b1715"),
-            ("1B", 822, 484, "first", "#c9875b", "#4a2c1c"),
-            ("2B", 630, 402, "infielder", "#f0b47a", "#5b321d"),
-            ("3B", 286, 492, "infielder", "#7a4a31", "#1d1512"),
-            ("SS", 456, 414, "infielder", "#b9774f", "#332018"),
-            ("LF", 250, 350, "outfielder", "#6f432e", "#1b1715"),
-            ("CF", 550, 292, "outfielder", "#d89a68", "#6b3a1e"),
-            ("RF", 850, 350, "outfielder", "#9f6646", "#271b17"),
+            # Outfield
+            ("outfielder", 270, 330, (60, 80), "right", "#6f432e", "#1b1715"),  # LF
+            ("outfielder", 550, 285, (58, 76), "right", "#d89a68", "#6b3a1e"),  # CF
+            ("outfielder", 830, 330, (60, 80), "left",  "#9f6646", "#271b17"),  # RF
+
+            # Infield — moved into more realistic baseball locations
+            ("infielder", third_base_x, third_base_y, (67, 88), "right", "#7a4a31", "#1d1512"),   # 3B
+            ("infielder", shortstop_x, shortstop_y, (65, 86), "right", "#b9774f", "#332018"),   # SS
+            ("infielder", second_base_x, second_base_y, (65, 86), "left",  "#f0b47a", "#5b321d"),   # 2B
+            ("first_baseman", first_base_x, first_base_y, (70, 90), "left", "#c9875b", "#4a2c1c"),# 1B
+
+            # Battery
+            ("pitcher", 550, pitcher_y, (76, 100), "right", "#8b5a3c", "#2b1b16"),
+            ("catcher", 550, 704, (78, 100), "right", "#5f3826", "#1b1715"),
         ]
-        for label, x, y, role, skin, hair in positions:
-            self.draw_player(x, y, defense_main, defense_secondary, role, skin, hair, label)
-        batter_x = 508 if self.batter_side == 1 else 592
-        self.draw_batter(batter_x, 654, offense_main, offense_secondary)
-        runner_positions = [(735, 490, "second"), (510, 382, "third"), (365, 520, "home")]
-        for occupied, (x, y, direction) in zip(self.bases, runner_positions):
-            if occupied is not None:
+
+        # Draw from back to front
+        for role, x, y, size, facing, skin, hair in positions:
+            if not self.draw_sprite_character(
+                role, x, y, defense_main, defense_secondary,
+                skin, hair, size=size, facing=facing,
+            ):
+                fallback_role = {"first_baseman": "first"}.get(role, role)
+                self.draw_player(
+                    x, y, defense_main, defense_secondary,
+                    fallback_role, skin, hair, "",
+                )
+
+        # Batter in batter's box, catcher behind plate
+        batter_x = 492 if self.batter_side == 1 else 608
+        batter_facing = "right" if self.batter_side == 1 else "left"
+        batter_state = {
+            "swing": "swing",
+            "out": "out",
+            "walk": "walk",
+        }.get(self.batter_reaction, "idle")
+
+        if not self.draw_sprite_character(
+            "batter", batter_x, 660, offense_main, offense_secondary,
+            "#b9774f", "#332018", size=(84, 112),
+            facing=batter_facing, state=batter_state,
+        ):
+            self.draw_batter(batter_x, 655, offense_main, offense_secondary)
+
+        # Base runners offset toward the next base
+        runner_positions = [
+            (830, 474, "left",  "second"),  # runner on 1st
+            (540, 374, "left",  "third"),   # runner on 2nd
+            (266, 474, "right", "home"),    # runner on 3rd
+        ]
+        if self.selected_field == "Parking Lot":
+            runner_positions = [
+                (855, 474, "left",  "second"),  # runner on 1st
+                (540, 349, "left",  "third"),   # runner on 2nd
+                (241, 474, "right", "home"),    # runner on 3rd
+            ]
+        elif self.selected_field == "Backyard":
+            runner_positions = [
+                (830, 459, "left",  "second"),  # runner on 1st
+                (530, 349, "left",  "third"),   # runner on 2nd
+                (266, 459, "right", "home"),    # runner on 3rd
+            ]
+        for occupied, (x, y, facing, direction) in zip(self.bases, runner_positions):
+            if occupied is None:
+                continue
+            if not self.draw_sprite_character(
+                "runner", x, y, offense_main, offense_secondary,
+                "#d89a68", "#3b2419", size=(68, 90), facing=facing,
+            ):
                 self.draw_runner(x, y, offense_main, offense_secondary, direction)
+
         for x, y in self.out_markers:
-            self.canvas.create_text(x, y - 58, text="X", fill=PALETTE["dusty_red"], font=("Courier", 24, "bold"))
+            self.canvas.create_text(
+                x, y - 58,
+                text="X",
+                fill=PALETTE["dusty_red"],
+                font=("Courier", 24, "bold"),
+            )
+
+    def draw_sprite_character(
+        self, role, x, ground_y, primary, secondary, skin, hair,
+        size=(70, 90), facing="right", state="idle",
+    ):
+        """Draw a recolored transparent sprite with its feet anchored at ground_y."""
+        sprite = self.sprite_manager.get(
+            role=role,
+            primary=primary,
+            secondary=secondary,
+            skin=skin,
+            hair=hair,
+            size=size,
+            facing=facing,
+            state=state,
+        )
+        if sprite is None:
+            return False
+        self.canvas.create_image(x, ground_y, image=sprite, anchor="s")
+        self.canvas_images.append(sprite)
+        return True
 
     def draw_player_cap(self, x, y, main, secondary, facing=1):
         outline = PALETTE["navy"]

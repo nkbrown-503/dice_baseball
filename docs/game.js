@@ -1,6 +1,13 @@
 const WIDTH = 1100;
 const HEIGHT = 720;
 
+const TITLE_BACKGROUND_FILE = "stadium_pictures/title_background.png";
+const BACKGROUND_FILES = {
+  Stadium: "stadium_pictures/stadium.png",
+  Backyard: "stadium_pictures/backyard.png",
+  "Parking Lot": "stadium_pictures/parking_lot.png",
+};
+
 const PALETTE = {
   cream: "#f6e7c8",
   mustard: "#d6a33a",
@@ -118,6 +125,8 @@ class DiceBaseballWeb {
     this.gameOver = false;
     this.winner = null;
     this.screen = "home";
+    this.backgroundImages = new Map();
+    this.loadBackgroundImages();
     this.canvas.addEventListener("click", (event) => this.onClick(event));
     this.canvas.addEventListener("touchstart", (event) => {
       event.preventDefault();
@@ -125,6 +134,31 @@ class DiceBaseballWeb {
       this.onClick(touch);
     }, { passive: false });
     this.showHome();
+  }
+
+  loadBackgroundImages() {
+    const paths = [TITLE_BACKGROUND_FILE, ...Object.values(BACKGROUND_FILES)];
+    paths.forEach((path) => {
+      const image = new Image();
+      image.onload = () => {
+        if (this.screen === "home") this.showHome();
+        else if (this.screen === "game") this.showGame();
+      };
+      image.src = path;
+      this.backgroundImages.set(path, image);
+    });
+  }
+
+  drawScaledBackgroundImage(path) {
+    const image = this.backgroundImages.get(path);
+    if (!image || !image.complete || !image.naturalWidth) return false;
+    const scale = Math.max(WIDTH / image.naturalWidth, HEIGHT / image.naturalHeight);
+    const sw = WIDTH / scale;
+    const sh = HEIGHT / scale;
+    const sx = Math.max(0, (image.naturalWidth - sw) / 2);
+    const sy = Math.max(0, (image.naturalHeight - sh) / 2);
+    this.ctx.drawImage(image, sx, sy, sw, sh, 0, 0, WIDTH, HEIGHT);
+    return true;
   }
 
   font(size, weight = "bold") {
@@ -328,7 +362,7 @@ class DiceBaseballWeb {
   showHome() {
     this.screen = "home";
     this.clear();
-    this.drawBackground();
+    if (!this.drawScaledBackgroundImage(TITLE_BACKGROUND_FILE)) this.drawBackground();
     this.panel(240, 80, 860, 255, PALETTE.card, PALETTE.navy, 7);
     this.titleText(550, 145, "DICE BASEBALL", 46);
     this.text(550, 210, "Neighborhood tabletop baseball", PALETTE.navy, 19);
@@ -469,11 +503,13 @@ class DiceBaseballWeb {
   }
 
   drawFieldScene(field) {
-    this.drawSky();
-    if (field === "Parking Lot") this.drawParkingLotBackground();
-    else if (field === "Backyard") this.drawBackyardBackground();
-    else this.drawStadiumBackground();
-    this.drawPlayableField(field);
+    if (!this.drawScaledBackgroundImage(BACKGROUND_FILES[field])) {
+      this.drawSky();
+      if (field === "Parking Lot") this.drawParkingLotBackground();
+      else if (field === "Backyard") this.drawBackyardBackground();
+      else this.drawStadiumBackground();
+      this.drawPlayableField(field);
+    }
     this.text(550, 33, field.toUpperCase(), PALETTE.cream, 24);
   }
 
@@ -566,11 +602,17 @@ class DiceBaseballWeb {
   }
 
   baseMarkerPosition(baseIndex) {
-    return [[735, 490], [510, 382], [365, 520]][baseIndex];
+    let positions = [[830, 474], [540, 374], [266, 474]];
+    if (this.selectedField === "Parking Lot") {
+      positions = [[855, 474], [540, 349], [241, 474]];
+    } else if (this.selectedField === "Backyard") {
+      positions = [[830, 459], [530, 349], [266, 459]];
+    }
+    return positions[baseIndex];
   }
 
   batterMarkerPosition() {
-    return [this.batterSide === 1 ? 508 : 592, 654];
+    return [this.batterSide === 1 ? 492 : 608, 660];
   }
 
   addOutMarker(x, y) {
@@ -618,7 +660,7 @@ class DiceBaseballWeb {
   }
 
   addStrikeout() {
-    this.teamStats[this.offenseSide()].strikeouts += 1;
+    this.teamStats[this.defenseSide()].strikeouts += 1;
   }
 
   advanceExistingRunners(bases = 1) {
@@ -680,7 +722,7 @@ class DiceBaseballWeb {
     if (forced === null) {
       this.addOutMarker(...this.batterMarkerPosition());
       this.outs += 1;
-      this.advanceExistingRunners(1);
+      if (this.outs < 3) this.advanceExistingRunners(1);
       return;
     }
     this.addOutMarker(...this.baseMarkerPosition(forced));
@@ -697,7 +739,7 @@ class DiceBaseballWeb {
   batterOutRunnersAdvance(bases = 0) {
     this.addOutMarker(...this.batterMarkerPosition());
     this.outs += 1;
-    if (bases) this.advanceExistingRunners(bases);
+    if (bases && this.outs < 3) this.advanceExistingRunners(bases);
   }
 
   currentRuleResult() {
@@ -791,21 +833,71 @@ class DiceBaseballWeb {
   drawPlayers() {
     const [defenseMain, defenseSecondary] = this.teamColors(this.defenseSide());
     const [offenseMain, offenseSecondary] = this.teamColors(this.offenseSide());
+    let thirdBaseX = 298;
+    let shortstopX = 468;
+    let secondBaseX = 632;
+    let firstBaseX = 805;
+    let pitcherY;
+    let thirdBaseY;
+    let shortstopY;
+    let secondBaseY;
+    let firstBaseY;
+    if (this.selectedField === "Backyard") {
+      pitcherY = 455;
+      thirdBaseY = 415;
+      shortstopY = 367;
+      secondBaseY = 367;
+      firstBaseY = 415;
+    } else if (this.selectedField === "Parking Lot") {
+      pitcherY = 455;
+      thirdBaseX = 283;
+      thirdBaseY = 425;
+      shortstopX = 453;
+      shortstopY = 377;
+      secondBaseX = 647;
+      secondBaseY = 377;
+      firstBaseX = 820;
+      firstBaseY = 425;
+    } else {
+      pitcherY = 470;
+      thirdBaseY = 440;
+      shortstopY = 392;
+      secondBaseY = 392;
+      firstBaseY = 440;
+    }
     const positions = [
-      ["P", 550, 468, "pitcher", "#8b5a3c", "#2b1b16"],
-      ["C", 550, 684, "catcher", "#5f3826", "#1b1715"],
-      ["1B", 822, 484, "first", "#c9875b", "#4a2c1c"],
-      ["2B", 630, 402, "infielder", "#f0b47a", "#5b321d"],
-      ["3B", 286, 492, "infielder", "#7a4a31", "#1d1512"],
-      ["SS", 456, 414, "infielder", "#b9774f", "#332018"],
-      ["LF", 250, 350, "outfielder", "#6f432e", "#1b1715"],
-      ["CF", 550, 292, "outfielder", "#d89a68", "#6b3a1e"],
-      ["RF", 850, 350, "outfielder", "#9f6646", "#271b17"],
+      ["LF", 270, 330, "outfielder", "#6f432e", "#1b1715"],
+      ["CF", 550, 285, "outfielder", "#d89a68", "#6b3a1e"],
+      ["RF", 830, 330, "outfielder", "#9f6646", "#271b17"],
+      ["3B", thirdBaseX, thirdBaseY, "infielder", "#7a4a31", "#1d1512"],
+      ["SS", shortstopX, shortstopY, "infielder", "#b9774f", "#332018"],
+      ["2B", secondBaseX, secondBaseY, "infielder", "#f0b47a", "#5b321d"],
+      ["1B", firstBaseX, firstBaseY, "first", "#c9875b", "#4a2c1c"],
+      ["P", 550, pitcherY, "pitcher", "#8b5a3c", "#2b1b16"],
+      ["C", 550, 704, "catcher", "#5f3826", "#1b1715"],
     ];
     positions.forEach(([label, x, y, role, skin, hair]) => this.drawPlayer(x, y, defenseMain, defenseSecondary, role, skin, hair, label));
-    const batterX = this.batterSide === 1 ? 508 : 592;
-    this.drawBatter(batterX, 654, offenseMain, offenseSecondary);
-    [[735, 490, "second"], [510, 382, "third"], [365, 520, "home"]].forEach(([x, y, direction], i) => {
+    const batterX = this.batterSide === 1 ? 492 : 608;
+    this.drawBatter(batterX, 660, offenseMain, offenseSecondary);
+    let runnerPositions = [
+      [830, 474, "second"],
+      [540, 374, "third"],
+      [266, 474, "home"],
+    ];
+    if (this.selectedField === "Parking Lot") {
+      runnerPositions = [
+        [855, 474, "second"],
+        [540, 349, "third"],
+        [241, 474, "home"],
+      ];
+    } else if (this.selectedField === "Backyard") {
+      runnerPositions = [
+        [830, 459, "second"],
+        [530, 349, "third"],
+        [266, 459, "home"],
+      ];
+    }
+    runnerPositions.forEach(([x, y, direction], i) => {
       if (this.bases[i] !== null) this.drawRunner(x, y, offenseMain, offenseSecondary, direction);
     });
     this.outMarkers.forEach(([x, y]) => this.text(x, y - 58, "X", PALETTE.dustyRed, 24));
