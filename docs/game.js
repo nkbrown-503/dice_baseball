@@ -163,7 +163,6 @@ class DiceBaseballWeb {
 
   loadSpriteImages() {
     SPRITE_ROLES.forEach((role) => this.loadSpriteImage(role));
-    ["batter_swing", "batter_out", "batter_walk", "runner_slide"].forEach((role) => this.loadSpriteImage(role, true));
   }
 
   loadSpriteImage(name, optional = false) {
