@@ -7,6 +7,15 @@ const BACKGROUND_FILES = {
   Backyard: "stadium_pictures/backyard.png",
   "Parking Lot": "stadium_pictures/parking_lot.png",
 };
+const CHARACTER_DIR = "character_sprites";
+const SPRITE_ROLES = ["pitcher", "catcher", "first_baseman", "infielder", "outfielder", "batter", "runner"];
+const SPRITE_PLACEHOLDERS = {
+  "255,0,0": "primary",
+  "0,255,0": "secondary",
+  "0,0,255": "accent",
+  "255,0,255": "skin",
+  "0,255,255": "hair",
+};
 
 const PALETTE = {
   cream: "#f6e7c8",
@@ -126,7 +135,10 @@ class DiceBaseballWeb {
     this.winner = null;
     this.screen = "home";
     this.backgroundImages = new Map();
+    this.spriteImages = new Map();
+    this.spriteCache = new Map();
     this.loadBackgroundImages();
+    this.loadSpriteImages();
     this.canvas.addEventListener("click", (event) => this.onClick(event));
     this.canvas.addEventListener("touchstart", (event) => {
       event.preventDefault();
@@ -147,6 +159,23 @@ class DiceBaseballWeb {
       image.src = path;
       this.backgroundImages.set(path, image);
     });
+  }
+
+  loadSpriteImages() {
+    SPRITE_ROLES.forEach((role) => this.loadSpriteImage(role));
+    ["batter_swing", "batter_out", "batter_walk", "runner_slide"].forEach((role) => this.loadSpriteImage(role, true));
+  }
+
+  loadSpriteImage(name, optional = false) {
+    const image = new Image();
+    image.onload = () => {
+      if (this.screen === "game") this.showGame();
+    };
+    image.onerror = () => {
+      if (!optional) this.spriteImages.delete(name);
+    };
+    image.src = `${CHARACTER_DIR}/${name}.png`;
+    this.spriteImages.set(name, image);
   }
 
   drawScaledBackgroundImage(path) {
@@ -258,6 +287,82 @@ class DiceBaseballWeb {
       return Math.round(value * (1 + amount));
     });
     return `#${adjusted.map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+  }
+
+  hexToRgb(color) {
+    const clean = color.replace("#", "");
+    return [0, 2, 4].map((i) => parseInt(clean.slice(i, i + 2), 16));
+  }
+
+  shadeRgb(rgb, factor) {
+    return rgb.map((value) => Math.max(0, Math.min(255, Math.round(value * factor))));
+  }
+
+  spriteTemplateName(role, state) {
+    if (state && state !== "idle") {
+      const stateName = `${role}_${state}`;
+      const stateImage = this.spriteImages.get(stateName);
+      if (stateImage && stateImage.complete && stateImage.naturalWidth) return stateName;
+    }
+    const image = this.spriteImages.get(role);
+    if (image && image.complete && image.naturalWidth) return role;
+    return null;
+  }
+
+  getSprite(role, primary, secondary, skin, hair, size, facing = "right", state = "idle") {
+    const templateName = this.spriteTemplateName(role, state);
+    if (!templateName) return null;
+    const key = [templateName, primary, secondary, skin, hair, size[0], size[1], facing].join("|");
+    if (this.spriteCache.has(key)) return this.spriteCache.get(key);
+
+    const source = this.spriteImages.get(templateName);
+    const primaryRgb = this.hexToRgb(primary);
+    const palette = {
+      primary: primaryRgb,
+      secondary: this.hexToRgb(secondary),
+      accent: this.shadeRgb(primaryRgb, 1.22),
+      skin: this.hexToRgb(skin),
+      hair: this.hexToRgb(hair),
+    };
+
+    const recolored = document.createElement("canvas");
+    recolored.width = source.naturalWidth;
+    recolored.height = source.naturalHeight;
+    const recolorCtx = recolored.getContext("2d");
+    recolorCtx.drawImage(source, 0, 0);
+    const imageData = recolorCtx.getImageData(0, 0, recolored.width, recolored.height);
+    for (let i = 0; i < imageData.data.length; i += 4) {
+      const placeholder = SPRITE_PLACEHOLDERS[`${imageData.data[i]},${imageData.data[i + 1]},${imageData.data[i + 2]}`];
+      if (!placeholder) continue;
+      const [r, g, b] = palette[placeholder];
+      imageData.data[i] = r;
+      imageData.data[i + 1] = g;
+      imageData.data[i + 2] = b;
+    }
+    recolorCtx.putImageData(imageData, 0, 0);
+
+    const scale = Math.min(size[0] / recolored.width, size[1] / recolored.height, 1);
+    const width = Math.max(1, Math.round(recolored.width * scale));
+    const height = Math.max(1, Math.round(recolored.height * scale));
+    const output = document.createElement("canvas");
+    output.width = width;
+    output.height = height;
+    const outputCtx = output.getContext("2d");
+    outputCtx.imageSmoothingEnabled = false;
+    if (facing === "left") {
+      outputCtx.translate(width, 0);
+      outputCtx.scale(-1, 1);
+    }
+    outputCtx.drawImage(recolored, 0, 0, width, height);
+    this.spriteCache.set(key, output);
+    return output;
+  }
+
+  drawSpriteCharacter(role, x, groundY, primary, secondary, skin, hair, size = [70, 90], facing = "right", state = "idle") {
+    const sprite = this.getSprite(role, primary, secondary, skin, hair, size, facing, state);
+    if (!sprite) return false;
+    this.ctx.drawImage(sprite, x - sprite.width / 2, groundY - sprite.height);
+    return true;
   }
 
   clear() {
@@ -866,19 +971,27 @@ class DiceBaseballWeb {
       firstBaseY = 440;
     }
     const positions = [
-      ["LF", 270, 330, "outfielder", "#6f432e", "#1b1715"],
-      ["CF", 550, 285, "outfielder", "#d89a68", "#6b3a1e"],
-      ["RF", 830, 330, "outfielder", "#9f6646", "#271b17"],
-      ["3B", thirdBaseX, thirdBaseY, "infielder", "#7a4a31", "#1d1512"],
-      ["SS", shortstopX, shortstopY, "infielder", "#b9774f", "#332018"],
-      ["2B", secondBaseX, secondBaseY, "infielder", "#f0b47a", "#5b321d"],
-      ["1B", firstBaseX, firstBaseY, "first", "#c9875b", "#4a2c1c"],
-      ["P", 550, pitcherY, "pitcher", "#8b5a3c", "#2b1b16"],
-      ["C", 550, 704, "catcher", "#5f3826", "#1b1715"],
+      ["outfielder", 270, 330, [60, 80], "right", "#6f432e", "#1b1715", "outfielder"],
+      ["outfielder", 550, 285, [58, 76], "right", "#d89a68", "#6b3a1e", "outfielder"],
+      ["outfielder", 830, 330, [60, 80], "left", "#9f6646", "#271b17", "outfielder"],
+      ["infielder", thirdBaseX, thirdBaseY, [67, 88], "right", "#7a4a31", "#1d1512", "infielder"],
+      ["infielder", shortstopX, shortstopY, [65, 86], "right", "#b9774f", "#332018", "infielder"],
+      ["infielder", secondBaseX, secondBaseY, [65, 86], "left", "#f0b47a", "#5b321d", "infielder"],
+      ["first_baseman", firstBaseX, firstBaseY, [70, 90], "left", "#c9875b", "#4a2c1c", "first"],
+      ["pitcher", 550, pitcherY, [76, 100], "right", "#8b5a3c", "#2b1b16", "pitcher"],
+      ["catcher", 550, 704, [78, 100], "right", "#5f3826", "#1b1715", "catcher"],
     ];
-    positions.forEach(([label, x, y, role, skin, hair]) => this.drawPlayer(x, y, defenseMain, defenseSecondary, role, skin, hair, label));
+    positions.forEach(([role, x, y, size, facing, skin, hair, fallbackRole]) => {
+      if (!this.drawSpriteCharacter(role, x, y, defenseMain, defenseSecondary, skin, hair, size, facing)) {
+        this.drawPlayer(x, y, defenseMain, defenseSecondary, fallbackRole, skin, hair);
+      }
+    });
     const batterX = this.batterSide === 1 ? 492 : 608;
-    this.drawBatter(batterX, 660, offenseMain, offenseSecondary);
+    const batterFacing = this.batterSide === 1 ? "right" : "left";
+    const batterState = { swing: "swing", out: "out", walk: "walk" }[this.batterReaction] || "idle";
+    if (!this.drawSpriteCharacter("batter", batterX, 660, offenseMain, offenseSecondary, "#b9774f", "#332018", [84, 112], batterFacing, batterState)) {
+      this.drawBatter(batterX, 660, offenseMain, offenseSecondary);
+    }
     let runnerPositions = [
       [830, 474, "second"],
       [540, 374, "third"],
@@ -898,7 +1011,11 @@ class DiceBaseballWeb {
       ];
     }
     runnerPositions.forEach(([x, y, direction], i) => {
-      if (this.bases[i] !== null) this.drawRunner(x, y, offenseMain, offenseSecondary, direction);
+      if (this.bases[i] === null) return;
+      const facing = direction === "home" ? "right" : "left";
+      if (!this.drawSpriteCharacter("runner", x, y, offenseMain, offenseSecondary, "#d89a68", "#3b2419", [68, 90], facing)) {
+        this.drawRunner(x, y, offenseMain, offenseSecondary, direction);
+      }
     });
     this.outMarkers.forEach(([x, y]) => this.text(x, y - 58, "X", PALETTE.dustyRed, 24));
   }
